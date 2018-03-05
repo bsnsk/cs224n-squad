@@ -176,6 +176,89 @@ class BasicAttn(object):
             return attn_dist, output
 
 
+class BiDAFAttn(object):
+    """Module for basic attention.
+
+    Note: in this module we use the terminology of "keys" and "values" (see lectures).
+    In the terminology of "X attends to Y", "keys attend to values".
+
+    In the baseline model, the keys are the context hidden states
+    and the values are the question hidden states.
+
+    We choose to use general terminology of keys and values in this module
+    (rather than context and question) to avoid confusion if you reuse this
+    module with other inputs.
+    """
+
+    def __init__(self, keep_prob, key_vec_size, value_vec_size):
+        """
+        Inputs:
+          keep_prob: tensor containing a single scalar that is the keep probability (for dropout)
+          key_vec_size: size of the key vectors. int
+          value_vec_size: size of the value vectors. int
+        """
+        self.keep_prob = keep_prob
+        self.key_vec_size = key_vec_size
+        self.value_vec_size = value_vec_size
+
+    def build_graph(self, values, values_mask, keys):
+        """
+        Keys attend to values.
+        For each key, return an attention distribution and an attention output vector.
+
+        Inputs:
+          values: Tensor shape (batch_size, num_values, value_vec_size).
+          values_mask: Tensor shape (batch_size, num_values).
+            1s where there's real input, 0s where there's padding
+          keys: Tensor shape (batch_size, num_keys, value_vec_size)
+
+        Outputs:
+          attn_dist: Tensor shape (batch_size, num_keys, num_values).
+            For each key, the distribution should sum to 1,
+            and should be 0 in the value locations that correspond to padding.
+          output: Tensor shape (batch_size, num_keys, hidden_size).
+            This is the attention output; the weighted sum of the values
+            (using the attention distribution as weights).
+        """
+        with vs.variable_scope("BiDAFAttn"):
+
+            N, M = keys.shape[1], values.shape[1]
+            WSim1 = tf.get_variable("W_sim_1", shape=[values.shape[2]], initializer=tf.contrib.layers.xavier_initializer())
+            WSim2 = tf.get_variable("W_sim_2", shape=[values.shape[2]], initializer=tf.contrib.layers.xavier_initializer())
+            WSim3 = tf.get_variable("W_sim_3", shape=[values.shape[2]], initializer=tf.contrib.layers.xavier_initializer())
+
+            keys_part = tf.matmul(keys, tf.tile(tf.reshape(WSim1, [1, WSim1.shape[0], 1]), [tf.shape(keys)[0], 1, 1]))  # batch_size, num_keys, 1
+
+            values_part = tf.matmul(values, tf.tile(tf.reshape(WSim2, [1, WSim2.shape[0], 1]), [tf.shape(keys)[0], 1, 1]))  # batch_size, num_values, 1
+
+            keys_t = tf.expand_dims(keys, 2)  # batch_size, num_keys, 1, value_vec_size
+            values_t = tf.expand_dims(values, 1)  # batch_size, 1, num_values, value_vec_size
+            prod_part = tf.squeeze(tf.matmul(
+                tf.expand_dims(keys_t * values_t, 3),
+                tf.tile(tf.reshape(WSim3, [1, 1, 1, WSim3.shape[0], 1]), [tf.shape(keys)[0], N, M, 1, 1])
+            ), [3, 4])  # batch_size, num_keys, num_values
+
+            sim = keys_part + tf.transpose(values_part, perm=[0, 2, 1]) + prod_part  # batch_size, num_keys, num_values
+            assert(len(sim.shape) == 3 and sim.shape[1] == N and sim.shape[2] == M)
+
+            # Key2Value Attention
+            mask = tf.expand_dims(values_mask, 1)  # batch_size, 1, num_values
+            _, alpha = masked_softmax(sim, mask, 2)  # batch_size, num_keys, num_values
+            a = tf.matmul(alpha, values)  # batch_size, num_keys, value_vec_size
+
+            # Value2Key Attention
+            m = tf.reduce_max(sim, axis=2)  # batch_size, num_keys
+            beta = tf.expand_dims(tf.nn.softmax(m), 1)  # batch_size, 1, num_keys
+            c_prime = tf.squeeze(tf.matmul(beta, keys), [1])  # batch_size, value_vec_size
+
+            output = tf.concat([keys, a, keys * a, keys * tf.expand_dims(c_prime, 1)], 2)  # batch_size, num_keys, value_vec_size * 4
+
+            # Apply dropout
+            output = tf.nn.dropout(output, self.keep_prob)
+
+            return (alpha, beta), output
+
+
 def masked_softmax(logits, mask, dim):
     """
     Takes masked softmax over given dimension of logits.
