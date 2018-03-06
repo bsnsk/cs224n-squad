@@ -201,7 +201,7 @@ class BiDAFAttn(object):
         self.key_vec_size = key_vec_size
         self.value_vec_size = value_vec_size
 
-    def build_graph(self, values, values_mask, keys):
+    def build_graph(self, values, values_mask, keys, keys_mask):
         """
         Keys attend to values.
         For each key, return an attention distribution and an attention output vector.
@@ -211,6 +211,8 @@ class BiDAFAttn(object):
           values_mask: Tensor shape (batch_size, num_values).
             1s where there's real input, 0s where there's padding
           keys: Tensor shape (batch_size, num_keys, value_vec_size)
+          keys_mask: Tensor shape (batch_size, num_keys)
+            similar to values_mask
 
         Outputs:
           attn_dist: Tensor shape (batch_size, num_keys, num_values).
@@ -233,10 +235,11 @@ class BiDAFAttn(object):
 
             keys_t = tf.expand_dims(keys, 2)  # batch_size, num_keys, 1, value_vec_size
             values_t = tf.expand_dims(values, 1)  # batch_size, 1, num_values, value_vec_size
-            prod_part = tf.squeeze(tf.matmul(
-                tf.expand_dims(keys_t * values_t, 3),
-                tf.tile(tf.reshape(WSim3, [1, 1, 1, WSim3.shape[0], 1]), [tf.shape(keys)[0], N, M, 1, 1])
-            ), [3, 4])  # batch_size, num_keys, num_values
+            prod_part = tf.tensordot(
+                keys_t * values_t,
+                WSim3,
+                [[3], [0]],
+            )  # batch_size, num_keys, num_values
 
             sim = keys_part + tf.transpose(values_part, perm=[0, 2, 1]) + prod_part  # batch_size, num_keys, num_values
             assert(len(sim.shape) == 3 and sim.shape[1] == N and sim.shape[2] == M)
@@ -248,7 +251,8 @@ class BiDAFAttn(object):
 
             # Value2Key Attention
             m = tf.reduce_max(sim, axis=2)  # batch_size, num_keys
-            beta = tf.expand_dims(tf.nn.softmax(m), 1)  # batch_size, 1, num_keys
+            _, beta_raw = masked_softmax(m, keys_mask, 1)  # batch_size, num_keys
+            beta = tf.expand_dims(beta_raw, 1)  # batch_size, 1, num_keys
             c_prime = tf.squeeze(tf.matmul(beta, keys), [1])  # batch_size, value_vec_size
 
             output = tf.concat([keys, a, keys * a, keys * tf.expand_dims(c_prime, 1)], 2)  # batch_size, num_keys, value_vec_size * 4
