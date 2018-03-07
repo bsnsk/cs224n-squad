@@ -263,6 +263,59 @@ class BiDAFAttn(object):
             return (alpha, beta), output
 
 
+class ModelingLayer(object):
+    """Module for modeling layer.
+
+        Similar to BiDAF, we use BiLSTM here.
+
+    """
+
+    def __init__(self, hidden_size, keep_prob):
+        """
+        Inputs:
+          hidden_size: int. Hidden size of the RNN
+          keep_prob: Tensor containing a single scalar that is the keep probability (for dropout)
+        """
+        self.hidden_size = hidden_size
+        self.keep_prob = keep_prob
+        self.num_layers = 2
+        self.rnn_cell_fw = rnn_cell.MultiRNNCell([
+            DropoutWrapper(rnn_cell.LSTMCell(self.hidden_size), input_keep_prob=self.keep_prob)
+            for _ in range(self.num_layers)
+        ])
+        self.rnn_cell_bw = rnn_cell.MultiRNNCell([
+            DropoutWrapper(rnn_cell.LSTMCell(self.hidden_size), input_keep_prob=self.keep_prob)
+            for _ in range(self.num_layers)
+        ])
+
+    def build_graph(self, inputs, masks):
+        """
+        Inputs:
+          inputs: Tensor shape (batch_size, context_len, hidden_size*4)
+          masks: Tensor shape (batch_size, context_len).
+            Has 1s where there is real input, 0s where there's padding.
+            This is used to make sure tf.nn.bidirectional_dynamic_rnn doesn't iterate through masked steps.
+
+        Returns:
+          out: Tensor shape (batch_size, context_len, hidden_size*2).
+            This is all hidden states (fw and bw hidden states are concatenated).
+        """
+        with vs.variable_scope("ModelingLayer"):
+            input_lens = tf.reduce_sum(masks, reduction_indices=1) # shape (batch_size)
+
+            # Note: fw_out and bw_out are the hidden states for every timestep.
+            # Each is shape (batch_size, context_len, hidden_size).
+            (fw_out, bw_out), _ = tf.nn.bidirectional_dynamic_rnn(self.rnn_cell_fw, self.rnn_cell_bw, inputs, input_lens, dtype=tf.float32)
+
+            # Concatenate the forward and backward hidden states
+            out = tf.concat([fw_out, bw_out], 2)
+
+            # Apply dropout
+            out = tf.nn.dropout(out, self.keep_prob)
+
+            return out
+
+
 def masked_softmax(logits, mask, dim):
     """
     Takes masked softmax over given dimension of logits.
