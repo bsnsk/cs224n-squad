@@ -218,7 +218,7 @@ class BiDAFAttn(object):
           attn_dist: Tensor shape (batch_size, num_keys, num_values).
             For each key, the distribution should sum to 1,
             and should be 0 in the value locations that correspond to padding.
-          output: Tensor shape (batch_size, num_keys, hidden_size).
+          output: Tensor shape (batch_size, num_keys, hidden_size*6).
             This is the attention output; the weighted sum of the values
             (using the attention distribution as weights).
         """
@@ -261,6 +261,79 @@ class BiDAFAttn(object):
             output = tf.nn.dropout(output, self.keep_prob)
 
             return (alpha, beta), output
+
+
+class SelfAttn(object):
+    """Module for self attention.
+
+    Note: in this module we use the terminology of "keys" and "values" (see lectures).
+    In the terminology of "X attends to Y", "keys attend to values".
+
+    In the baseline model, the keys are the context hidden states
+    and the values are the question hidden states.
+
+    We choose to use general terminology of keys and values in this module
+    (rather than context and question) to avoid confusion if you reuse this
+    module with other inputs.
+    """
+
+    def __init__(self, keep_prob, key_vec_size, hidden_size):
+        """
+        Inputs:
+          keep_prob: tensor containing a single scalar that is the keep probability (for dropout)
+          key_vec_size: size of the key vectors. int
+          value_vec_size: size of the value vectors. int
+        """
+        self.keep_prob = keep_prob
+        self.key_vec_size = key_vec_size
+        self.hidden_vec_size = hidden_size
+        self.hidden_size = hidden_size
+        self.rnn_cell_fw = rnn_cell.LSTMCell(self.hidden_size)
+        self.rnn_cell_fw = DropoutWrapper(self.rnn_cell_fw, input_keep_prob=self.keep_prob)
+        self.rnn_cell_bw = rnn_cell.LSTMCell(self.hidden_size)
+        self.rnn_cell_bw = DropoutWrapper(self.rnn_cell_bw, input_keep_prob=self.keep_prob)
+
+    def build_graph(self, keys, keys_mask):
+        """
+        Keys attend to values.
+        For each key, return an attention distribution and an attention output vector.
+
+        Inputs:
+          keys: Tensor shape (batch_size, num_keys, key_vec_size)
+          key_mask: Tensor shape (batch_size, num_keys)
+            1s where there's real input, 0s where there's padding
+
+        Outputs:
+          output: Tensor shape (batch_size, num_keys, self_attn_hidden_size).
+            This is the attention output.
+        """
+        with vs.variable_scope("SelfAttn"):
+
+            N = keys.shape[1]
+            v = tf.get_variable("v", shape=[self.hidden_vec_size], initializer=tf.contrib.layers.xavier_initializer())
+            W1 = tf.get_variable("W1", shape=[self.key_vec_size, self.hidden_vec_size], initializer=tf.contrib.layers.xavier_initializer())
+            W2 = tf.get_variable("W2", shape=[self.key_vec_size, self.hidden_vec_size], initializer=tf.contrib.layers.xavier_initializer())
+
+            part_j = tf.expand_dims(keys, 1)  # batch_size, 1, num_keys, key_vec_size
+            part_i = tf.expand_dims(keys, 2)  # batch_size, num_keys, 1, key_vec_size
+            t = tf.tanh(tf.tensordot(part_j, W1, [[3], [0]]) + tf.tensordot(part_i, W2, [[3], [0]]))  # batch_size, num_keys, num_keys, self.hidden_vec_size
+            e = tf.tensordot(t, v, [[3], [0]])  # batch_size, num_keys, num_keys
+            e_mask = tf.expand_dims(keys_mask, 1)  # batch_size, 1, num_keys
+            _, attn_dist = masked_softmax(e, e_mask, 2)  # batch_size, num_keys, num_keys
+            a = tf.matmul(attn_dist, keys)  # batch_size, num_keys, key_vec_size
+
+            key_lens = tf.reduce_sum(keys_mask, reduction_indices=1) # shape (batch_size)
+
+            # Note: fw_out and bw_out are the hidden states for every timestep.
+            # Each is shape (batch_size, num_keys, self_attn_hidden_size).
+            (fw_out, bw_out), _ = tf.nn.bidirectional_dynamic_rnn(self.rnn_cell_fw, self.rnn_cell_bw, a, key_lens, dtype=tf.float32)
+
+            output = tf.concat([fw_out, bw_out], 2)  # batch_size, num_keys, self_attn_hidden_size
+
+            # Apply dropout
+            output = tf.nn.dropout(output, self.keep_prob)
+
+            return output
 
 
 def masked_softmax(logits, mask, dim):

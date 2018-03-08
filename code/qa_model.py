@@ -31,6 +31,7 @@ from evaluate import exact_match_score, f1_score
 from data_batcher import get_batch_generator
 from pretty_print import print_example
 from modules import RNNEncoder, SimpleSoftmaxLayer, BasicAttn, BiDAFAttn
+from modules import SelfAttn
 
 logging.basicConfig(level=logging.INFO)
 
@@ -135,11 +136,14 @@ class QAModel(object):
         question_hiddens = encoder.build_graph(self.qn_embs, self.qn_mask) # (batch_size, question_len, hidden_size*2)
 
         # Use context hidden states to attend to question hidden states
-        attn_layer = BiDAFAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
-        _, attn_output = attn_layer.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*2)
+        attn_layer_bidaf = BiDAFAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
+        _, attn_output_bidaf = attn_layer_bidaf.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*6)
+
+        attn_layer_self = SelfAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.self_attn_hidden_size)
+        attn_output_self = attn_layer_self.build_graph(context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
 
         # Concat attn_output to context_hiddens to get blended_reps
-        blended_reps = tf.concat([context_hiddens, attn_output], axis=2) # (batch_size, context_len, hidden_size*6)
+        blended_reps = tf.concat([context_hiddens, attn_output_bidaf, attn_output_self], axis=2) # (batch_size, context_len, hidden_size*6 + self_attn_hidden_size)
 
         # Apply fully connected layer to each blended representation
         # Note, blended_reps_final corresponds to b' in the handout
