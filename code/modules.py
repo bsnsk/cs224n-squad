@@ -255,7 +255,7 @@ class BiDAFAttn(object):
             beta = tf.expand_dims(beta_raw, 1)  # batch_size, 1, num_keys
             c_prime = tf.squeeze(tf.matmul(beta, keys), [1])  # batch_size, value_vec_size
 
-            output = tf.concat([keys, a, keys * a, keys * tf.expand_dims(c_prime, 1)], 2)  # batch_size, num_keys, value_vec_size * 4
+            output = tf.concat([a, keys * a, keys * tf.expand_dims(c_prime, 1)], 2)  # batch_size, num_keys, value_vec_size * 3
 
             # Apply dropout
             output = tf.nn.dropout(output, self.keep_prob)
