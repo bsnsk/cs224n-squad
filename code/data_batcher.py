@@ -38,7 +38,7 @@ class Batch(object):
           {context/qn}_mask: Numpy arrays, same shape as _ids.
             Contains 1s where there is real data, 0s where there is padding.
           {context/qn/ans}_tokens: Lists length batch_size, containing lists (unpadded) of tokens (strings)
-          ans_span: numpy array, shape (batch_size, 2)
+          ans_span: numpy array, shape (batch_size)
           uuid: a list (length batch_size) of strings.
             Not needed for training. Used by official_eval mode.
         """
@@ -93,7 +93,7 @@ def padded(token_batch, batch_pad=0):
     return map(lambda token_list: token_list + [PAD_ID] * (maxlen - len(token_list)), token_batch)
 
 
-def refill_batches(batches, word2id, context_file, qn_file, ans_file, batch_size, context_len, question_len, discard_long):
+def refill_batches(batches, word2id, context_file, qn_file, ans_file, batch_size, context_len, question_len, discard_long, span_max_length=35):  # FIXME: This 35 is DANGEROUS!
     """
     Adds more batches into the "batches" list.
 
@@ -108,6 +108,7 @@ def refill_batches(batches, word2id, context_file, qn_file, ans_file, batch_size
     """
     print "Refilling batches..."
     tic = time.time()
+    indices = [[i, i + l] for l in range(0, span_max_length + 1) for i in range(context_len - l)]
     examples = [] # list of (qn_ids, context_ids, ans_span, ans_tokens) triples
     context_line, qn_line, ans_line = context_file.readline(), qn_file.readline(), ans_file.readline() # read the next line from each
 
@@ -127,6 +128,9 @@ def refill_batches(batches, word2id, context_file, qn_file, ans_file, batch_size
             print "Found an ill-formed gold span: start=%i end=%i" % (ans_span[0], ans_span[1])
             continue
         ans_tokens = context_tokens[ans_span[0] : ans_span[1]+1] # list of strings
+
+        # update ans_span to span index
+        ans_span = indices.index(ans_span)
 
         # discard or truncate too-long questions
         if len(qn_ids) > question_len:

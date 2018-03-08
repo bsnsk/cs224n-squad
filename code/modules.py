@@ -15,6 +15,7 @@
 """This file contains some basic model components"""
 
 import tensorflow as tf
+import numpy as np
 from tensorflow.python.ops.rnn_cell import DropoutWrapper
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import rnn_cell
@@ -314,6 +315,64 @@ class ModelingLayer(object):
             out = tf.nn.dropout(out, self.keep_prob)
 
             return out
+
+
+class SpanOutputLayer(object):
+    """Module for output layer (span representation).
+
+        Using <b_i, b_k> to represent span <i, k>. See DCR model for details.
+
+    """
+
+    def __init__(self, hidden_size, keep_prob, span_max_length):
+        """
+        Inputs:
+          hidden_size: int. Hidden size of the RNN
+          keep_prob: Tensor containing a single scalar that is the keep probability (for dropout)
+        """
+        self.hidden_size = hidden_size
+        self.keep_prob = keep_prob
+        self.span_max_length = span_max_length
+
+    def build_graph(self, inputs, masks):
+        """
+        Inputs:
+          inputs: Tensor shape (batch_size, context_len, hidden_size*2)
+          masks: Tensor shape (batch_size, context_len).
+            Has 1s where there is real input, 0s where there's padding.
+            This is used to make sure tf.nn.bidirectional_dynamic_rnn doesn't iterate through masked steps.
+
+        Returns:
+          out: Tensor shape (batch_size, num_spans).
+            This is all hidden states (fw and bw hidden states are concatenated).
+        """
+        with vs.variable_scope("SpanOutputLayer"):
+            input_lens = tf.reduce_sum(masks, reduction_indices=1) # shape (batch_size)
+
+            offset = self.hidden_size
+            clen = inputs.shape[1]
+            indices = [[i, i + l] for l in range(0, self.span_max_length + 1) for i in range(clen - l)]
+            spans = tf.map_fn(
+                lambda batch: tf.convert_to_tensor([
+                    batch[pair[0]][:offset] + batch[pair[1]][offset:]  # num_spans, hidden_size*2
+                    for pair in indices
+                ]),
+                inputs,
+            )  # batch_size, num_spans, hidden_size * 2
+            logits = tf.contrib.layers.fully_connected(spans, num_outputs=1, activation_fn=None)  # batch_size, num_spans, 1
+            logits = tf.squeeze(logits, [2])  # batch_size, num_spans
+            span_masks = tf.map_fn(
+                lambda length:
+                    tf.convert_to_tensor([tf.cond(
+                        p[0] < length,
+                        lambda: tf.cond(p[1] < length, lambda: 1, lambda: 0),
+                        lambda: 0,
+                    ) for p in indices]),
+                    # tf.convert_to_tensor([1 if p[0] < length and p[1] < length else 0 for p in indices]),
+                input_lens,
+            )  # batch_size, num_spans
+            _, span_probs = masked_softmax(logits, span_masks, 1)  # batch_size, num_spans
+            return span_probs
 
 
 def masked_softmax(logits, mask, dim):

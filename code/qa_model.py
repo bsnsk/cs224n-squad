@@ -31,6 +31,7 @@ from evaluate import exact_match_score, f1_score
 from data_batcher import get_batch_generator
 from pretty_print import print_example
 from modules import RNNEncoder, SimpleSoftmaxLayer, BasicAttn, BiDAFAttn, ModelingLayer
+from modules import SpanOutputLayer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -52,6 +53,7 @@ class QAModel(object):
         self.FLAGS = FLAGS
         self.id2word = id2word
         self.word2id = word2id
+        self.span_max_length = self.FLAGS.span_max_length
 
         # Add all parts of the graph
         with tf.variable_scope("QAModel", initializer=tf.contrib.layers.variance_scaling_initializer(factor=1.0, uniform=True)):
@@ -90,7 +92,7 @@ class QAModel(object):
         self.context_mask = tf.placeholder(tf.int32, shape=[None, self.FLAGS.context_len])
         self.qn_ids = tf.placeholder(tf.int32, shape=[None, self.FLAGS.question_len])
         self.qn_mask = tf.placeholder(tf.int32, shape=[None, self.FLAGS.question_len])
-        self.ans_span = tf.placeholder(tf.int32, shape=[None, 2])
+        self.ans_span = tf.placeholder(tf.int32, shape=[None])
 
         # Add a placeholder to feed in the keep probability (for dropout).
         # This is necessary so that we can instruct the model to use dropout when training, but not when testing
@@ -145,22 +147,9 @@ class QAModel(object):
         modeling_layer = ModelingLayer(self.FLAGS.hidden_size, self.keep_prob)
         model_output = modeling_layer.build_graph(blended_reps, self.context_mask)
 
-        # Apply fully connected layer to each blended representation
-        # Note, blended_reps_final corresponds to b' in the handout
-        # Note, tf.contrib.layers.fully_connected applies a ReLU non-linarity here by default
-        blended_reps_final = tf.contrib.layers.fully_connected(model_output, num_outputs=self.FLAGS.hidden_size) # blended_reps_final is shape (batch_size, context_len, hidden_size)
-
-        # Use softmax layer to compute probability distribution for start location
-        # Note this produces self.logits_start and self.probdist_start, both of which have shape (batch_size, context_len)
-        with vs.variable_scope("StartDist"):
-            softmax_layer_start = SimpleSoftmaxLayer()
-            self.logits_start, self.probdist_start = softmax_layer_start.build_graph(blended_reps_final, self.context_mask)
-
-        # Use softmax layer to compute probability distribution for end location
-        # Note this produces self.logits_end and self.probdist_end, both of which have shape (batch_size, context_len)
-        with vs.variable_scope("EndDist"):
-            softmax_layer_end = SimpleSoftmaxLayer()
-            self.logits_end, self.probdist_end = softmax_layer_end.build_graph(blended_reps_final, self.context_mask)
+        # Compute span representation
+        span_layer = SpanOutputLayer(self.FLAGS.hidden_size, self.keep_prob, self.span_max_length)
+        self.logits = span_layer.build_graph(model_output, self.context_mask)  # batch_size, 2
 
 
     def add_loss(self):
@@ -168,15 +157,15 @@ class QAModel(object):
         Add loss computation to the graph.
 
         Uses:
-          self.logits_start: shape (batch_size, context_len)
-            IMPORTANT: Assumes that self.logits_start is masked (i.e. has -large in masked locations).
+          self.logits: shape (batch_size, num_spans)
+            IMPORTANT: Assumes that self.logits is masked (i.e. has -large in masked locations).
             That's because the tf.nn.sparse_softmax_cross_entropy_with_logits
             function applies softmax and then computes cross-entropy loss.
             So you need to apply masking to the logits (by subtracting large
             number in the padding location) BEFORE you pass to the
             sparse_softmax_cross_entropy_with_logits function.
 
-          self.ans_span: shape (batch_size, 2)
+          self.ans_span: shape (batch_size)
             Contains the gold start and end locations
 
         Defines:
@@ -184,18 +173,8 @@ class QAModel(object):
         """
         with vs.variable_scope("loss"):
 
-            # Calculate loss for prediction of start position
-            loss_start = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start, labels=self.ans_span[:, 0]) # loss_start has shape (batch_size)
-            self.loss_start = tf.reduce_mean(loss_start) # scalar. avg across batch
-            tf.summary.scalar('loss_start', self.loss_start) # log to tensorboard
-
-            # Calculate loss for prediction of end position
-            loss_end = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end, labels=self.ans_span[:, 1])
-            self.loss_end = tf.reduce_mean(loss_end)
-            tf.summary.scalar('loss_end', self.loss_end)
-
-            # Add the two losses
-            self.loss = self.loss_start + self.loss_end
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.ans_span)
+            self.loss = tf.reduce_mean(loss)
             tf.summary.scalar('loss', self.loss)
 
 
