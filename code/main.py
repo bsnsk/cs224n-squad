@@ -53,6 +53,7 @@ tf.app.flags.DEFINE_integer("context_len", 600, "The maximum context length of y
 tf.app.flags.DEFINE_integer("question_len", 30, "The maximum question length of your model")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained word vectors. This needs to be one of the available GloVe dimensions: 50/100/200/300")
 
+tf.app.flags.DEFINE_integer("max_ans_len", 15, "The maximum length of your answer")
 tf.app.flags.DEFINE_integer("self_attn_hidden_size", 75, "Hidden size of self attention.")
 
 # How often to print, save, eval
