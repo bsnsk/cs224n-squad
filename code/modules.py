@@ -335,7 +335,90 @@ class SelfAttn(object):
 
             return output
 
+class CoAttn2(object):
 
+    def __init__(self, keep_prob, key_vec_size, value_vec_size):
+        self.keep_prob = keep_prob
+        self.key_vec_size = key_vec_size
+        self.value_vec_size = value_vec_size
+
+        self.lstm_fw_cell = tf.contrib.rnn.BasicLSTMCell(key_vec_size, forget_bias = 1.0)
+        self.lstm_fw_cell = DropoutWrapper(self.lstm_fw_cell, input_keep_prob=self.keep_prob)
+        self.lstm_bw_cell = tf.contrib.rnn.BasicLSTMCell(key_vec_size, forget_bias = 1.0)
+        self.lstm_bw_cell = DropoutWrapper(self.lstm_bw_cell, input_keep_prob=self.keep_prob)
+
+        self.key_sentinel = tf.get_variable("key_sentinel", shape = (self.key_vec_size, ), initializer=tf.contrib.layers.xavier_initializer())
+        self.value_sentinel = tf.get_variable("val_sentinel", shape = (self.value_vec_size, ), initializer=tf.contrib.layers.xavier_initializer())
+
+    def build_graph(self, values, values_mask, keys, keys_mask):
+        """
+        Keys attend to values.
+        For each key, return an attention distribution and an attention output vector.
+
+        Inputs:
+          values: Tensor shape (batch_size, num_values, value_vec_size).
+          values_mask: Tensor shape (batch_size, num_values).
+            1s where there's real input, 0s where there's padding
+          keys: Tensor shape (batch_size, num_keys, value_vec_size)
+
+        Outputs:
+          attn_dist: Tensor shape (batch_size, num_keys, num_values).
+            For each key, the distribution should sum to 1,
+            and should be 0 in the value locations that correspond to padding.
+          output: Tensor shape (batch_size, num_keys, hidden_size).
+            This is the attention output; the weighted sum of the values
+            (using the attention distribution as weights).
+        """
+
+        with vs.variable_scope("CoAttn2"):
+            num_keys = tf.shape(keys)[1]
+            num_values= tf.shape(values)[1]
+            
+            #num_values = tf.shape(values)
+            phi_mask = tf.tile(tf.convert_to_tensor([[1]]), [tf.shape(keys)[0], 1])
+
+            keys_mask = tf.concat([keys_mask,phi_mask], 1)
+            values_mask = tf.concat([values_mask, phi_mask], 1) #(batch_size, num_values+1)
+
+            #key: context, value: question
+            key_phi = tf.tile(tf.expand_dims(tf.expand_dims(self.key_sentinel, 0), 0), [tf.shape(keys)[0],1,1])
+            value_phi = tf.tile(tf.expand_dims(tf.expand_dims(self.value_sentinel, 0), 0), [tf.shape(keys)[0],1,1])
+            keys_sent = tf.concat([keys, key_phi], 1)
+            values_sent = tf.concat([values, value_phi], 1)
+
+            values_p = tf.contrib.layers.fully_connected(values_sent, num_outputs=self.value_vec_size, activation_fn=tf.nn.tanh) # (batch_size, question_len, value_vec_size)
+            values_pt = tf.transpose(values_p, perm=[0, 2, 1])
+        
+            L = tf.matmul(keys_sent, values_pt)# shape (batch_size, num_keys+1, num_values+1)
+            
+            #C2Q (a)
+            C2Q_attn_logits_mask = tf.expand_dims(values_mask, 1) # shape (batch_size, 1, num_values+1)
+            _, C2Q_attn_dist = masked_softmax(L, C2Q_attn_logits_mask, 2) #shape(batch_size, nums_keys+1, num_values+1)
+            C2Q_output = tf.matmul(C2Q_attn_dist, values_p) # shape (batch_size, num_keys + 1, value_vec_size)
+            #print(C2Q_output.get_shape())
+
+            #Q2C (b)
+            Q2C_attn_logits_mask = tf.expand_dims(keys_mask, 1) # shape (batch_size, 1, nums_keys + 1)
+            _, Q2C_attn_dist = masked_softmax(tf.transpose(L, perm=[0, 2, 1]), Q2C_attn_logits_mask, 2) # shape (batch_size, num_values+1, num_keys+1)
+            Q2C_output = tf.matmul(Q2C_attn_dist, keys_sent) # shape (batch_size, num_values + 1, key_vec_size)
+            #print(Q2C_output.get_shape())
+            
+            # second_level_attention(CQ*AC)
+            second_level_attn = tf.matmul(C2Q_attn_dist, Q2C_output) # shape (batch_size, num_keys + 1, key_vec_size)
+            CD = tf.concat([C2Q_output, second_level_attn], 2)# shape (batch_size, num_keys + 1, 2*key_vec_size)
+            
+            input_lens = tf.reduce_sum(keys_mask, reduction_indices=1) - 1 # shape (batch_size)
+            inputs = tf.concat([keys_sent, CD], 2)
+            inputs = inputs[:, :-1, :]
+
+            (fw_out, bw_out), _ = tf.nn.bidirectional_dynamic_rnn(self.lstm_fw_cell, self.lstm_bw_cell, inputs, input_lens, dtype=tf.float32)
+            out = tf.concat([fw_out, bw_out], 2)
+
+            # Apply dropout
+            out = tf.nn.dropout(out, self.keep_prob)
+
+            return out
+            
 class ModelingLayer(object):
     """Module for modeling layer.
 
