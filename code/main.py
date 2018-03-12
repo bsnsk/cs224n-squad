@@ -54,7 +54,7 @@ tf.app.flags.DEFINE_integer("question_len", 30, "The maximum question length of 
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained word vectors. This needs to be one of the available GloVe dimensions: 50/100/200/300")
 
 #Character-level CNN
-tf.app.flags.DEFINE_integer("word_len", 10, "The maximum word length in terms of charactrers")
+tf.app.flags.DEFINE_integer("word_len", 12, "The maximum word length in terms of charactrers")
 tf.app.flags.DEFINE_integer("char_hidden_size", 100, "Size of the hidden states")
 tf.app.flags.DEFINE_integer("kernel_size", 5, "Size of the conv kernel")
 tf.app.flags.DEFINE_integer("char_embedding_size", 20, "Size of the char vectors.")
