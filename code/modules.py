@@ -19,7 +19,37 @@ from tensorflow.python.ops.rnn_cell import DropoutWrapper
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import rnn_cell
 
+class CharCNN(object):
 
+    def __init__(self, hidden_size, kernel_size, keep_prob):
+        """
+        Inputs:
+          hidden_size: int. Hidden size of the RNN
+          keep_prob: Tensor containing a single scalar that is the keep probability (for dropout)
+        """
+        self.hidden_size = hidden_size
+        self.kernel_size = kernel_size
+        self.keep_prob = keep_prob
+
+    def build_graph(self, inputs):
+        """
+        Inputs:
+          inputs: Tensor shape # shape (batch_size, seq_len, word_len, char_embedding_size)
+          masks: Tensor shape (batch_size, seq_len, word_len).
+            Has 1s where there is real input, 0s where there's padding.
+            This is used to make sure tf.nn.bidirectional_dynamic_rnn doesn't iterate through masked steps.
+
+        Returns:
+          out: Tensor shape (batch_size, seq_len, word_len, hidden_size).
+            This is all hidden states (fw and bw hidden states are concatenated).
+        """
+        with vs.variable_scope("CharCNN"):
+            conv = tf.layers.conv2d(inputs, self.hidden_size, self.kernel_size, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE) #shape (batch_size, seq_len, hidden_size, char_embedding_size)
+            out = tf.reduce_max(conv, reduction_indices = 2)
+            # Apply dropout
+            out = tf.nn.dropout(out, self.keep_prob)
+
+            return out
 class RNNEncoder(object):
     """
     General-purpose module to encode a sequence using a RNN.
