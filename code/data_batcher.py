@@ -50,8 +50,8 @@ class Batch(object):
         self.qn_mask = qn_mask
         self.qn_tokens = qn_tokens
 
-        self.context_char_ids = context_char_ids#????????????????
-        self.qn_char_ids = qn_char_ids#????????????????
+        self.context_char_ids = context_char_ids
+        self.qn_char_ids = qn_char_ids
 
         self.ans_span = ans_span
         self.ans_tokens = ans_tokens
