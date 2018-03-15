@@ -30,7 +30,8 @@ from tensorflow.python.ops import embedding_ops
 from evaluate import exact_match_score, f1_score
 from data_batcher import get_batch_generator
 from pretty_print import print_example
-from modules import RNNEncoder, SimpleSoftmaxLayer, BasicAttn, CharCNN
+from modules import RNNEncoder, SimpleSoftmaxLayer, BasicAttn, BiDAFAttn, CoAttn2, ModelingLayer
+from modules import SelfAttn, CharCNN
 
 logging.basicConfig(level=logging.INFO)
 
@@ -150,16 +151,27 @@ class QAModel(object):
         question_hiddens = encoder.build_graph(mixed_question_embed, self.qn_mask) # (batch_size, question_len, hidden_size*2)
 
         # Use context hidden states to attend to question hidden states
-        attn_layer = BasicAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
-        _, attn_output = attn_layer.build_graph(question_hiddens, self.qn_mask, context_hiddens) # attn_output is shape (batch_size, context_len, hidden_size*2)
+        attn_layer_bidaf = BiDAFAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
+        attn_c2q, attn_output_bidaf = attn_layer_bidaf.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*6)
+                           # attn_c2q is shape (batch_size, context_len, hidden_size*6)
+
+        attn_layer_self = SelfAttn(self.keep_prob, self.FLAGS.hidden_size*6, self.FLAGS.self_attn_hidden_size)
+        attn_output_self = attn_layer_self.build_graph(attn_c2q, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
+
+        attn_layer_co = CoAttn2(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
+        attn_output_co = attn_layer_co.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*2)
 
         # Concat attn_output to context_hiddens to get blended_reps
-        blended_reps = tf.concat([context_hiddens, attn_output], axis=2) # (batch_size, context_len, hidden_size*4)
+        blended_reps = tf.concat([context_hiddens, attn_output_bidaf, attn_output_self, attn_output_co], axis=2) # (batch_size, context_len, hidden_size*6 + self_attn_hidden_size)
+
+        # Use a 2-layer biLSTEM for modeling
+        modeling_layer = ModelingLayer(self.FLAGS.hidden_size, self.keep_prob)
+        model_output = modeling_layer.build_graph(blended_reps, self.context_mask)
 
         # Apply fully connected layer to each blended representation
         # Note, blended_reps_final corresponds to b' in the handout
         # Note, tf.contrib.layers.fully_connected applies a ReLU non-linarity here by default
-        blended_reps_final = tf.contrib.layers.fully_connected(blended_reps, num_outputs=self.FLAGS.hidden_size) # blended_reps_final is shape (batch_size, context_len, hidden_size)
+        blended_reps_final = tf.contrib.layers.fully_connected(model_output, num_outputs=self.FLAGS.hidden_size) # blended_reps_final is shape (batch_size, context_len, hidden_size)
 
         # Use softmax layer to compute probability distribution for start location
         # Note this produces self.logits_start and self.probdist_start, both of which have shape (batch_size, context_len)

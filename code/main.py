@@ -47,14 +47,18 @@ tf.app.flags.DEFINE_integer("num_epochs", 0, "Number of epochs to train. 0 means
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use")
+tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size to use")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "Size of the hidden states")
-tf.app.flags.DEFINE_integer("context_len", 600, "The maximum context length of your model")
+tf.app.flags.DEFINE_integer("context_len", 400, "The maximum context length of your model")
 tf.app.flags.DEFINE_integer("question_len", 30, "The maximum question length of your model")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained word vectors. This needs to be one of the available GloVe dimensions: 50/100/200/300")
 
+
+tf.app.flags.DEFINE_integer("max_ans_len", 15, "The maximum length of your answer")
+tf.app.flags.DEFINE_integer("self_attn_hidden_size", 75, "Hidden size of self attention.")
+
 #Character-level CNN
-tf.app.flags.DEFINE_integer("word_len", 12, "The maximum word length in terms of charactrers")
+tf.app.flags.DEFINE_integer("word_len", 8, "The maximum word length in terms of charactrers")
 tf.app.flags.DEFINE_integer("char_hidden_size", 100, "Size of the hidden states")
 tf.app.flags.DEFINE_integer("kernel_size", 5, "Size of the conv kernel")
 tf.app.flags.DEFINE_integer("char_embedding_size", 20, "Size of the char vectors.")
