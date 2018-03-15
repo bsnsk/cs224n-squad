@@ -43,22 +43,27 @@ class CharCNN(object):
           out: Tensor shape (batch_size, seq_len, word_len, hidden_size).
             This is all hidden states (fw and bw hidden states are concatenated).
         """
-        #stack 3 layers
+        #3 filters on the same layers
         with vs.variable_scope("CharCNN"):
+            pooled_outputs = []
             with tf.name_scope("conv-maxpool-1"):
-                conv = tf.layers.conv2d(inputs, self.hidden_size, self.kernel_size, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv1") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
-                pooled = tf.layers.max_pooling2d(conv, pool_size = self.kernel_size, strides = 1, padding = 'same')
+                conv1 = tf.layers.conv2d(inputs, self.hidden_size, self.kernel_size, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv1") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
+                pooled1 = tf.layers.max_pooling2d(conv1, pool_size = self.kernel_size, strides = 1, padding = 'same')
+                pooled_outputs.append(pooled1)
 
             with tf.name_scope("conv-maxpool-2"):
-                conv = tf.layers.conv2d(pooled, self.hidden_size, self.kernel_size-1, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv2") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
-                pooled = tf.layers.max_pooling2d(conv, pool_size = self.kernel_size-1, strides = 1, padding = 'same')
+                conv2 = tf.layers.conv2d(inputs, self.hidden_size, self.kernel_size-1, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv2") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
+                pooled2 = tf.layers.max_pooling2d(conv2, pool_size = self.kernel_size-1, strides = 1, padding = 'same')
+                pooled_outputs.append(pooled2)
 
             with tf.name_scope("conv-maxpool-3"):
-                conv = tf.layers.conv2d(pooled, self.hidden_size, self.kernel_size-2, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv3") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
-                pooled = tf.layers.max_pooling2d(conv, pool_size = self.kernel_size-2, strides = 1, padding = 'same')
+                conv3 = tf.layers.conv2d(inputs, self.hidden_size, self.kernel_size-2, activation = tf.nn.relu, padding = "same", reuse=tf.AUTO_REUSE, name="conv3") #shape (batch_size, seq_len, hidden_size, char_embedding_size)
+                pooled3 = tf.layers.max_pooling2d(conv3, pool_size = self.kernel_size-2, strides = 1, padding = 'same')
+                pooled_outputs.append(pooled3)
+            out = tf.concat(pooled_outputs, 3)
 
 
-            out = tf.reduce_max(pooled, reduction_indices = 2)
+            out = tf.reduce_max(out, reduction_indices = 2)
             # Apply dropout
             out = tf.nn.dropout(out, self.keep_prob)
 
