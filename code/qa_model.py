@@ -155,14 +155,14 @@ class QAModel(object):
         attn_c2q, attn_output_bidaf = attn_layer_bidaf.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*6)
                            # attn_c2q is shape (batch_size, context_len, hidden_size*6)
 
-        attn_layer_self = SelfAttn(self.keep_prob, self.FLAGS.hidden_size*6, self.FLAGS.self_attn_hidden_size)
-        attn_output_self = attn_layer_self.build_graph(attn_c2q, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
+        #attn_layer_self = SelfAttn(self.keep_prob, self.FLAGS.hidden_size*6, self.FLAGS.self_attn_hidden_size)
+        #attn_output_self = attn_layer_self.build_graph(attn_c2q, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
 
         attn_layer_co = CoAttn2(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
         attn_output_co = attn_layer_co.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*2)
 
         # Concat attn_output to context_hiddens to get blended_reps
-        blended_reps = tf.concat([context_hiddens, attn_output_bidaf, attn_output_self, attn_output_co], axis=2) # (batch_size, context_len, hidden_size*6 + self_attn_hidden_size)
+        blended_reps = tf.concat([context_hiddens, attn_output_bidaf, attn_output_co], axis=2) # (batch_size, context_len, hidden_size*6 + self_attn_hidden_size)
 
         # Use a 2-layer biLSTEM for modeling
         modeling_layer = ModelingLayer(self.FLAGS.hidden_size, self.keep_prob)

@@ -92,9 +92,9 @@ class RNNEncoder(object):
         """
         self.hidden_size = hidden_size
         self.keep_prob = keep_prob
-        self.rnn_cell_fw = rnn_cell.GRUCell(self.hidden_size)
+        self.rnn_cell_fw = rnn_cell.LSTMCell(self.hidden_size)
         self.rnn_cell_fw = DropoutWrapper(self.rnn_cell_fw, input_keep_prob=self.keep_prob)
-        self.rnn_cell_bw = rnn_cell.GRUCell(self.hidden_size)
+        self.rnn_cell_bw = rnn_cell.LSTMCell(self.hidden_size)
         self.rnn_cell_bw = DropoutWrapper(self.rnn_cell_bw, input_keep_prob=self.keep_prob)
 
     def build_graph(self, inputs, masks):
@@ -390,9 +390,9 @@ class CoAttn2(object):
         self.key_vec_size = key_vec_size
         self.value_vec_size = value_vec_size
 
-        self.lstm_fw_cell = tf.contrib.rnn.BasicLSTMCell(key_vec_size, forget_bias = 1.0)
+        self.lstm_fw_cell = rnn_cell.LSTMCell(key_vec_size, forget_bias = 1.0)
         self.lstm_fw_cell = DropoutWrapper(self.lstm_fw_cell, input_keep_prob=self.keep_prob)
-        self.lstm_bw_cell = tf.contrib.rnn.BasicLSTMCell(key_vec_size, forget_bias = 1.0)
+        self.lstm_bw_cell = rnn_cell.LSTMCell(key_vec_size, forget_bias = 1.0)
         self.lstm_bw_cell = DropoutWrapper(self.lstm_bw_cell, input_keep_prob=self.keep_prob)
 
         self.key_sentinel = tf.get_variable("key_sentinel", shape = (self.key_vec_size, ), initializer=tf.contrib.layers.xavier_initializer())
