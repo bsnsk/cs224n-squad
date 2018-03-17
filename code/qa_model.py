@@ -309,11 +309,17 @@ class QAModel(object):
         start_dist, end_dist = self.get_prob_dists(session, batch)
 
         # Take argmax to get start_pos and end_post, both shape (batch_size)
-        start_pos = np.argmax(start_dist, axis=1)
-        end_pos = np.array([
-            np.argmax(end_dist[b][start_pos[b]:start_pos[b]+self.FLAGS.max_ans_len]) + start_pos[b]
-            for b in range(start_dist.shape[0])
-        ])
+        start_pos = np.zeros(start_dist.shape[0], dtype=int)
+        end_pos = np.zeros(start_dist.shape[0], dtype=int)
+        for b in range(start_dist.shape[0]):
+            start_pos[b], end_pos[b], _ = sorted([
+                (
+                    i,
+                    i + np.argmax(end_dist[b][i:i + self.FLAGS.max_ans_len]),
+                    start_dist[b][i] * np.max(end_dist[b][i:i + self.FLAGS.max_ans_len]),
+                )
+                for i in range(self.FLAGS.context_len)
+            ], key=lambda x: -x[2])[0]
 
         return start_pos, end_pos
 
