@@ -318,25 +318,38 @@ class QAModel(object):
 
 
     def get_start_end_pos(self, session, batch):
-        """
-        Run forward-pass only; get the most likely answer span.
+            """
+            Run forward-pass only; get the most likely answer span.
 
-        Inputs:
-          session: TensorFlow session
-          batch: Batch object
+            Inputs:
+              session: TensorFlow session
+              batch: Batch object
 
-        Returns:
-          start_pos, end_pos: both numpy arrays shape (batch_size).
-            The most likely start and end positions for each example in the batch.
-        """
-        # Get start_dist and end_dist, both shape (batch_size, context_len)
-        start_dist, end_dist = self.get_prob_dists(session, batch)
+            Returns:
+              start_pos, end_pos: both numpy arrays shape (batch_size).
+                The most likely start and end positions for each example in the batch.
+            """
+            # Get start_dist and end_dist, both shape (batch_size, context_len)
+            start_dist, end_dist = self.get_prob_dists(session, batch)
 
-        # Take argmax to get start_pos and end_post, both shape (batch_size)
-        start_pos = np.argmax(start_dist, axis=1)
-        end_pos = np.argmax(end_dist, axis=1)
+            # Take argmax to get start_pos and end_post, both shape (batch_size)
+            #start_pos = np.argmax(start_dist, axis=1)
+            #end_pos = np.argmax(end_dist, axis=1)
 
-        return start_pos, end_pos
+            # Take argmax to get start_pos and end_post, both shape (batch_size)
+            start_pos = np.zeros(start_dist.shape[0], dtype=int)
+            end_pos = np.zeros(start_dist.shape[0], dtype=int)
+            for b in range(start_dist.shape[0]):
+                start_pos[b], end_pos[b], _ = sorted([
+                    (
+                        i,
+                        i + np.argmax(end_dist[b][i:i + self.FLAGS.max_ans_len]),
+                        start_dist[b][i] * np.max(end_dist[b][i:i + self.FLAGS.max_ans_len]),
+                    )
+                    for i in range(self.FLAGS.context_len)
+                ], key=lambda x: -x[2])[0]
+
+            return start_pos, end_pos
 
 
     def get_dev_loss(self, session, dev_context_path, dev_qn_path, dev_ans_path):
