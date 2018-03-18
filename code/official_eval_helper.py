@@ -40,7 +40,7 @@ def readnext(x):
 
 
 
-def refill_batches(batches, word2id, qn_uuid_data, context_token_data, qn_token_data, batch_size, context_len, word_len, question_len):
+def refill_batches(batches, word2id, qn_uuid_data, context_token_data, qn_token_data, batch_size, context_len, question_len, word_len):
     """
     This is similar to refill_batches in data_batcher.py, but:
       (1) instead of reading from (preprocessed) datafiles, it reads from the provided lists

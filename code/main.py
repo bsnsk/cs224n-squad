@@ -58,7 +58,7 @@ tf.app.flags.DEFINE_integer("max_ans_len", 15, "The maximum length of your answe
 tf.app.flags.DEFINE_integer("self_attn_hidden_size", 75, "Hidden size of self attention.")
 
 #Character-level CNN
-tf.app.flags.DEFINE_integer("word_len", 8, "The maximum word length in terms of charactrers")
+tf.app.flags.DEFINE_integer("word_len", 16, "The maximum word length in terms of charactrers")
 tf.app.flags.DEFINE_integer("char_hidden_size", 100, "Size of the hidden states")
 tf.app.flags.DEFINE_integer("kernel_size", 5, "Size of the conv kernel")
 tf.app.flags.DEFINE_integer("char_embedding_size", 20, "Size of the char vectors.")
