@@ -15,6 +15,7 @@
 """This file contains some basic model components"""
 
 import tensorflow as tf
+import numpy as np
 from tensorflow.python.ops.rnn_cell import DropoutWrapper
 from tensorflow.python.ops import variable_scope as vs
 from tensorflow.python.ops import rnn_cell
@@ -259,7 +260,7 @@ class BiDAFAttn(object):
             # Apply dropout
             output = tf.nn.dropout(output, self.keep_prob)
 
-            return tf.concat([keys, a, keys * a], 2), output
+            return tf.concat([keys, a, keys * a], 2), output, (alpha, beta)
 
 
 class SelfAttn(object):
@@ -332,7 +333,7 @@ class SelfAttn(object):
             # Apply dropout
             output = tf.nn.dropout(output, self.keep_prob)
 
-            return output
+            return output, attn_dist
 
 class CoAttn2(object):
 
@@ -416,7 +417,7 @@ class CoAttn2(object):
             # Apply dropout
             out = tf.nn.dropout(out, self.keep_prob)
 
-            return out
+            return out, (C2Q_attn_dist, Q2C_attn_dist)
 
 class ModelingLayer(object):
     """Module for modeling layer.

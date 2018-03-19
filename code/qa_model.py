@@ -1,5 +1,4 @@
-# Copyright 2018 Stanford University
-#
+# Copyright 2018 Stanford University 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -137,14 +136,20 @@ class QAModel(object):
 
         # Use context hidden states to attend to question hidden states
         attn_layer_bidaf = BiDAFAttn(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
-        attn_c2q, attn_output_bidaf = attn_layer_bidaf.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*6)
+        attn_c2q, attn_output_bidaf, (c2q_coef_bidaf, q2c_coef_bidaf) = attn_layer_bidaf.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*6)
                            # attn_c2q is shape (batch_size, context_len, hidden_size*6)
 
         attn_layer_self = SelfAttn(self.keep_prob, self.FLAGS.hidden_size*6, self.FLAGS.self_attn_hidden_size)
-        attn_output_self = attn_layer_self.build_graph(attn_c2q, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
+        attn_output_self, coef_self = attn_layer_self.build_graph(attn_c2q, self.context_mask) # attn_output is shape (batch_size, context_len, self_attn_hidden_size)
 
         attn_layer_co = CoAttn2(self.keep_prob, self.FLAGS.hidden_size*2, self.FLAGS.hidden_size*2)
-        attn_output_co = attn_layer_co.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*2)
+        attn_output_co, (c2q_coef_co, q2c_coef_co) = attn_layer_co.build_graph(question_hiddens, self.qn_mask, context_hiddens, self.context_mask) # attn_output is shape (batch_size, context_len, hidden_size*2)
+
+        self.attentions = {
+            "bidaf-attn": [c2q_coef_bidaf, q2c_coef_bidaf],
+            "co-attn": [c2q_coef_co, q2c_coef_co],
+            "self-attn": coef_self,
+        }
 
         # Concat attn_output to context_hiddens to get blended_reps
         blended_reps = tf.concat([context_hiddens, attn_output_bidaf, attn_output_self, attn_output_co], axis=2) # (batch_size, context_len, hidden_size*6 + self_attn_hidden_size)
@@ -288,8 +293,18 @@ class QAModel(object):
         input_feed[self.qn_mask] = batch.qn_mask
         # note you don't supply keep_prob here, so it will default to 1 i.e. no dropout
 
-        output_feed = [self.probdist_start, self.probdist_end]
-        [probdist_start, probdist_end] = session.run(output_feed, input_feed)
+        output_feed = [self.probdist_start, self.probdist_end, self.attentions]
+        [probdist_start, probdist_end, attns] = session.run(output_feed, input_feed)
+        with open("../log/bidaf-attn-c2q.log", "w") as f:
+            np.save(f, attns["bidaf-attn"][0])
+        with open("../log/bidaf-attn-q2c.log", "w") as f:
+            np.save(f, attns["bidaf-attn"][1])
+        with open("../log/co-attn-c2q.log", "w") as f:
+            np.save(f, attns["co-attn"][0])
+        with open("../log/co-attn-q2c.log", "w") as f:
+            np.save(f, attns["co-attn"][1])
+        with open("../log/self-attn.log", "w") as f:
+            np.save(f, attns["self-attn"])
         return probdist_start, probdist_end
 
 
@@ -397,6 +412,8 @@ class QAModel(object):
 
         tic = time.time()
 
+        logf = open("../log/samples.log", "w")
+
         # Note here we select discard_long=False because we want to sample from the entire dataset
         # That means we're truncating, rather than discarding, examples with too-long context or questions
         for batch in get_batch_generator(self.word2id, context_path, qn_path, ans_path, self.FLAGS.batch_size, context_len=self.FLAGS.context_len, question_len=self.FLAGS.question_len, discard_long=False):
@@ -427,6 +444,9 @@ class QAModel(object):
 
                 # Optionally pretty-print
                 if print_to_screen:
+                    logf.write("CONTEXT: " + " ".join(batch.context_tokens[ex_idx]) + "\n")
+                    logf.write("QUESTION: " + " ".join(batch.qn_tokens[ex_idx]) + "\n")
+                    logf.write("ANSWER: " + " ".join(batch.context_tokens[ex_idx][batch.ans_span[ex_idx, 0] : batch.ans_span[ex_idx, 1] + 1]) + "\n\n")
                     print_example(self.word2id, batch.context_tokens[ex_idx], batch.qn_tokens[ex_idx], batch.ans_span[ex_idx, 0], batch.ans_span[ex_idx, 1], pred_ans_start, pred_ans_end, true_answer, pred_answer, f1, em)
 
                 if num_samples != 0 and example_num >= num_samples:
@@ -437,6 +457,8 @@ class QAModel(object):
 
         f1_total /= example_num
         em_total /= example_num
+
+        logf.close()
 
         toc = time.time()
         logging.info("Calculating F1/EM for %i examples in %s set took %.2f seconds" % (example_num, dataset, toc-tic))
